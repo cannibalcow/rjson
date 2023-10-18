@@ -5,7 +5,6 @@ fn main() {
     let j = r#"
     {
         "age": 3,
-        "name": "heldt"
         "sub": {
             "car": true,
             "isFast": false,

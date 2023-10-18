@@ -7,6 +7,22 @@ pub enum JsonValue {
     String(String),
     Object(Vec<(String, JsonValue)>),
 }
+/*
+impl Display for JsonValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JsonValue::Bool(v) => write!(f, "{}", v),
+            JsonValue::Number(v) => write!(f, "{:e}", v),
+            JsonValue::Null => write!(f, "null"),
+            JsonValue::Array(_) => write!(f, "fittaray"),
+            JsonValue::String(v) => write!(f, "'{}'", v),
+            JsonValue::Object(v) => {
+                write!(f, "{:?}", v)
+            }
+        }
+    }
+}
+*/
 
 #[derive(Debug)]
 pub enum JsonError {
@@ -163,7 +179,7 @@ impl JsonParser for Json {
             self.consume_char();
 
             match self.current_char() {
-                Some(',') => {
+                Some(',') | Some(' ') => {
                     self.consume_char();
                     continue;
                 }
