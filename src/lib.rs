@@ -1,34 +1,37 @@
-#[derive(Debug, PartialEq)]
-enum JsonValue {
+#[derive(Debug, PartialEq, Clone)]
+pub enum JsonValue {
     Bool(bool),
     Number(f64),
     Null,
     Array(Vec<JsonValue>),
-    //   String(String),
-    // Object(HashMap<String, JsonValue>),
+    String(String),
+    Object(Vec<(String, JsonValue)>),
 }
 
 #[derive(Debug)]
-enum JsonError {
+pub enum JsonError {
     InvalidFormat(String),
     EndOfStr,
 }
 
-struct Json {
+pub struct Json {
     pos: usize,
     json: String,
 }
 
-trait JsonParser {
+pub trait JsonParser {
     fn parse(&mut self) -> Result<JsonValue, JsonError>;
     fn parse_bool(&mut self) -> Result<JsonValue, JsonError>;
     fn parse_number(&mut self) -> Result<JsonValue, JsonError>;
     fn parse_null(&mut self) -> Result<JsonValue, JsonError>;
     fn parse_array(&mut self) -> Result<JsonValue, JsonError>;
+    fn parse_string(&mut self) -> Result<JsonValue, JsonError>;
+    fn parse_object(&mut self) -> Result<JsonValue, JsonError>;
+    fn parse_key(&mut self) -> String;
 }
 
 impl Json {
-    fn new(json: String) -> Self {
+    pub fn new(json: String) -> Self {
         Self { pos: 0, json }
     }
 
@@ -68,14 +71,21 @@ impl Json {
 
 impl JsonParser for Json {
     fn parse(&mut self) -> Result<JsonValue, JsonError> {
+        loop {
+            match self.current_char() {
+                Some(' ') | Some('\n') | Some(':') | Some(',') | Some('\t') => self.consume_char(),
+                Some(_) | None => break,
+            };
+        }
+
         match self.current_char() {
-            // Boolean
+            Some('{') => self.parse_object(),
             Some('T') | Some('F') | Some('t') | Some('f') => self.parse_bool(),
-            // Number
             Some('-') | Some('0') | Some('1') | Some('2') | Some('3') | Some('4') | Some('5')
             | Some('6') | Some('7') | Some('8') | Some('9') => self.parse_number(),
-            // Object
             Some('N') | Some('n') => self.parse_null(),
+            Some('[') => self.parse_array(),
+            Some('"') => self.parse_string(),
             Some(c) => Err(self.invalid_format(c)),
             None => Err(JsonError::EndOfStr),
         }
@@ -147,7 +157,86 @@ impl JsonParser for Json {
     }
 
     fn parse_array(&mut self) -> Result<JsonValue, JsonError> {
-        Ok(JsonValue::Array(vec![]))
+        let mut array = Vec::new();
+
+        loop {
+            self.consume_char();
+
+            match self.current_char() {
+                Some(',') => {
+                    self.consume_char();
+                    continue;
+                }
+                Some(']') => {
+                    self.consume_char();
+                    break;
+                }
+                Some(_) => {
+                    let value = self.parse().unwrap();
+                    array.push(value);
+                }
+                None => break,
+            }
+        }
+        Ok(JsonValue::Array(array))
+    }
+
+    fn parse_string(&mut self) -> Result<JsonValue, JsonError> {
+        self.consume_char();
+        let str: String = self
+            .json
+            .chars()
+            .into_iter()
+            .skip(self.pos)
+            .into_iter()
+            .take_while(|c| *c != '"')
+            .collect::<String>();
+
+        self.consume_chars(str.len());
+
+        Ok(JsonValue::String(str))
+    }
+
+    fn parse_key(&mut self) -> String {
+        let str = self
+            .json
+            .chars()
+            .into_iter()
+            .skip(self.pos)
+            .into_iter()
+            .take_while(|c| *c != '"')
+            .collect::<String>();
+
+        self.consume_chars(str.len());
+
+        str
+    }
+
+    fn parse_object(&mut self) -> Result<JsonValue, JsonError> {
+        let mut obj = Vec::new();
+        loop {
+            self.consume_char();
+            match self.current_char() {
+                Some('}') => {
+                    self.consume_char();
+                    break;
+                }
+                // Fattar inte .. dum i huvudet
+                Some(',') | Some(' ') | Some(':') | Some('\n') | Some('\t') => {
+                    self.consume_char();
+                    continue;
+                }
+                Some(_) => {
+                    let key = self.parse_key();
+                    self.consume_char();
+                    let value = self.parse().unwrap();
+                    obj.push((key, value));
+                    continue;
+                }
+                None => break,
+            };
+        }
+        Ok(JsonValue::Object(obj))
     }
 }
 
@@ -158,6 +247,17 @@ mod tests {
     use crate::{Json, JsonParser, JsonValue};
 
     #[test]
+    fn parse_object_num() {
+        let data = r#"{"age":4}"#.to_string();
+
+        let mut obj = Vec::new();
+        obj.push(("age".to_string(), JsonValue::Number(4.0)));
+
+        let mut json = Json::new(data);
+        assert_eq!(json.parse().unwrap(), JsonValue::Object(obj));
+    }
+
+    #[test]
     fn parse_null() {
         let data = "null".to_string();
         let mut json = Json::new(data);
@@ -165,11 +265,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_knull() {
         let datar2 = "nkll".to_string();
         let mut json2 = Json::new(datar2);
-        json2.parse_null().unwrap();
+        assert!(json2.parse_null().is_err());
     }
 
     #[test]
@@ -220,6 +319,47 @@ mod tests {
             let mut json = Json::new(key.to_string());
             assert_eq!(cases.get(*key).unwrap(), &json.parse().unwrap());
         }
+    }
+
+    #[test]
+    fn parse_array() {
+        let data = "[1,2,3]".to_string();
+
+        let mut json = Json::new(data);
+        assert_eq!(
+            json.parse_array().unwrap(),
+            JsonValue::Array(vec![
+                JsonValue::Number(1.0),
+                JsonValue::Number(2.0),
+                JsonValue::Number(3.0)
+            ])
+        )
+    }
+
+    #[test]
+    fn parse_array_bool() {
+        let data = "[true,false,false]".to_string();
+
+        let mut json = Json::new(data);
+        assert_eq!(
+            json.parse_array().unwrap(),
+            JsonValue::Array(vec![
+                JsonValue::Bool(true),
+                JsonValue::Bool(false),
+                JsonValue::Bool(false)
+            ])
+        )
+    }
+
+    #[test]
+    fn parse_string() {
+        let data = "\"apa\"".to_string();
+
+        let mut json = Json::new(data);
+        assert_eq!(
+            json.parse_string().unwrap(),
+            JsonValue::String("apa".to_string())
+        )
     }
 
     #[test]
