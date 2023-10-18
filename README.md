@@ -1,0 +1,3 @@
+# This a half working buggy badly written jsonparser...
+
+do not use. plz
